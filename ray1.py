@@ -23,10 +23,11 @@ class Ray(object, ):
         return self.A + t*self.B
 
 class HitRecord(object, ):
-    def __init__(self, t, p, normal):
+    def __init__(self, t, p, normal, material):
         self.t = t
         self.p = p
         self.normal = normal
+        self.material = material
 
 class Camera(object, ):
     lower_left_corner = np.array([-2.0, -1.0, -1.0])
@@ -41,11 +42,38 @@ class Hitable(object, ):
     def hit(self, r, t_min, t_max, ):
         pass
 
+class Material(object, ):
+    def scatter(self, r_in, hit_record, ):
+        pass # return boolean, attenuation, scattered
+
+class Lambertian(Material, ):
+    def __init__(self, a):
+        self.albedo = a
+
+    def scatter(self, r_in, hit_record, ):
+        target = hit_record.p + hit_record.normal + random_in_unit_sphere()
+        scattered = Ray(hit_record.p, target-hit_record.p)
+        return True, self.albedo, scattered
+
+class Metal(Material, ):
+    def __init__(self, a, f):
+        self.albedo = a
+        if f<1:
+            self.fuzz = f
+        else:
+            self.fuzz = 1
+
+    def scatter(self, r_in, hit_record, ):
+        reflected = reflect(unit_vector(r_in.direction), hit_record.normal)
+        scattered = Ray(hit_record.p, reflected + self.fuzz*random_in_unit_sphere() )
+        return scattered.direction.dot(hit_record.normal)>0, self.albedo, scattered
+
 class Sphere(Hitable, ):
 
-    def __init__(self, c, r):
+    def __init__(self, c, r, m):
         self.center = c
         self.radius = r
+        self.material = m
 
     def hit(self, r, t_min, t_max, ):
         oc = r.origin - self.center
@@ -58,12 +86,12 @@ class Sphere(Hitable, ):
             temp = ( -b - np.sqrt(b*b-a*c))/a
             if temp < t_max and temp > t_min:
                 p = r.point_at_parameter(temp)
-                return True, HitRecord(temp, p, (p-self.center)/self.radius)
+                return True, HitRecord(temp, p, (p-self.center)/self.radius, self.material)
 
             temp = ( -b + np.sqrt(b*b-a*c))/a
             if temp < t_max and temp > t_min:
                 p = r.point_at_parameter(temp)
-                return True, HitRecord(temp, p, (p-self.center)/self.radius)
+                return True, HitRecord(temp, p, (p-self.center)/self.radius, self.material)
         return False, None
 
 class HitableList(Hitable, ):
@@ -85,6 +113,9 @@ class HitableList(Hitable, ):
 
         return hit_anything, rec
 
+def reflect(v, n):
+    return v - 2*v.dot(n)*n
+
 def random_in_unit_sphere():
     while True:
         p = 2.0* np.array(
@@ -99,12 +130,17 @@ def unit_vector(v):
     mag = np.sqrt(v.dot(v))
     return np.array([v[0]/mag, v[1]/mag, v[2]/mag])
 
-def color(r, world):
+def color(r, world, depth):
 
-    res, rec = world.hit(r, 0.0, 999999999)
+    res, rec = world.hit(r, 0.001, 999999999)
     if(res):
-        target = rec.p + rec.normal + random_in_unit_sphere()
-        return 0.2*color(Ray(rec.p, target - rec.p), world)
+        res, attenuation, scattered = rec.material.scatter(r, rec, )
+        #print scattered, type(scattered)
+        if depth<50 and res:
+            return attenuation*color(scattered, world, depth+1)
+
+        else:
+            return np.array([0.0, 0.0, 0.0])
 
     else:
         unit_direction = unit_vector(r.direction)
@@ -118,8 +154,10 @@ def create_image(stream, nx=200, ny=100):
     stream.write("255\n")
 
     world = HitableList([
-        Sphere(np.array([0, 0, -1]), 0.5),
-        Sphere(np.array([0, -100.5,-1]), 100),
+        Sphere(np.array([0, 0, -1]), 0.5, Lambertian(np.array([0.8, 0.3, 0.3]))),
+        Sphere(np.array([0, -100.5,-1]), 100, Lambertian(np.array([0.8, 0.8, 0.0]))),
+        Sphere(np.array([1, 0,-1]), 0.5, Metal(np.array([0.8, 0.6, 0.2]), 1.0)),
+        Sphere(np.array([-1, 0,-1]), 0.5, Metal(np.array([0.8, 0.8, 0.8]), 0.3)),
         #Sphere(np.array([ 0.5, -1.5,-3]), 0.5),
         #Sphere(np.array([ -0.5, -0.5, -1]), 1.0),
         #Sphere(np.array([0,-100,5]), 100.5),
@@ -127,7 +165,7 @@ def create_image(stream, nx=200, ny=100):
     ])
 
     cam = Camera()
-    ns = 8
+    ns = 25
     color_function = color
     np_array = np.array
     random_function = random.random
@@ -143,7 +181,7 @@ def create_image(stream, nx=200, ny=100):
                 u = (1.0*x+random_function())/nx
                 v = (1.0*y+random_function())/ny
                 r = get_ray_function(u, v)
-                col += color_function(r, world)
+                col += color_function(r, world, 0)
             col /= (1.0)*ns
             col = np_array([np_sqrt(col[0]), np_sqrt(col[1]), np_sqrt(col[2]),])
 
