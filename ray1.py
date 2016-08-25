@@ -1,4 +1,5 @@
 import numpy as np
+import random
 from PIL import Image
 
 class Ray(object, ):
@@ -27,6 +28,15 @@ class HitRecord(object, ):
         self.p = p
         self.normal = normal
 
+class Camera(object, ):
+    lower_left_corner = np.array([-2.0, -1.0, -1.0])
+    horizontal = np.array([4.0, 0.0, 0.0])
+    vertical = np.array([0.0, 2.0, 0.0])
+    origin = np.array([0.0, 0.0, 0.0])
+
+    def get_ray(self, u, v):
+        return Ray(self.origin, self.lower_left_corner+ u*self.horizontal + v*self.vertical)
+
 class Hitable(object, ):
     def hit(self, r, t_min, t_max, ):
         pass
@@ -48,38 +58,31 @@ class Sphere(Hitable, ):
             temp = ( -b - np.sqrt(b*b-a*c))/a
             if temp < t_max and temp > t_min:
                 p = r.point_at_parameter(temp)
-                return True, {
-                    't': temp,
-                    'p': p,
-                    'normal': (p-self.center)/self.radius
-                }
+                return True, HitRecord(temp, p, (p-self.center)/self.radius)
+
             temp = ( -b + np.sqrt(b*b-a*c))/a
             if temp < t_max and temp > t_min:
                 p = r.point_at_parameter(temp)
-                return True, {
-                    't': temp,
-                    'p': p,
-                    'normal': (p-self.center) / self.radius
-                }
-        return False, {}
+                return True, HitRecord(temp, p, (p-self.center)/self.radius)
+        return False, None
 
 class HitableList(Hitable, ):
     hitables = []
-    
+
     def __init__(self, hitables):
         self.hitables = hitables
 
     def hit(self, r, t_min, t_max, ):
         hit_anything = False
         closest_so_far = t_max
-        rec = {}
+        rec = None
         for h in self.hitables:
             res, tmp_rec = h.hit(r, t_min, closest_so_far)
             if res:
                 hit_anything = True
-                closest_so_far = tmp_rec['t']
+                closest_so_far = tmp_rec.t
                 rec = tmp_rec
-                
+
         return hit_anything, rec
 
 
@@ -88,13 +91,13 @@ def unit_vector(v):
     return np.array([v[0]/mag, v[1]/mag, v[2]/mag])
 
 def color(r, world):
-    
+
     res, rec = world.hit(r, 0.0, 999999)
     if(res):
         return 0.5 * np.array([
-            rec['normal'][0] + 1,
-            rec['normal'][1] + 1,
-            rec['normal'][2] + 1,
+            rec.normal[0] + 1,
+            rec.normal[1] + 1,
+            rec.normal[2] + 1,
         ])
     else:
         unit_direction = unit_vector(r.direction)
@@ -126,20 +129,26 @@ def create_image(stream, nx=200, ny=100):
 
     world = HitableList([
         Sphere(np.array([0, 0, -1]), 0.5),
-        Sphere(np.array([1, 1,-1.5]), 0.5),
-        Sphere(np.array([ 0.5, -1.5,-3]), 0.5),
+        Sphere(np.array([0, -100.5,-1]), 100),
+        #Sphere(np.array([ 0.5, -1.5,-3]), 0.5),
         #Sphere(np.array([ -0.5, -0.5, -1]), 1.0),
         #Sphere(np.array([0,-100,5]), 100.5),
-        
-    ])
-    
-    for y in range(ny):
-        for x in range(nx):
 
-            u = x*1.0 / nx
-            v = y*1.0 / ny
-            r = Ray(origin, lower_left_corner+ u*horizontal + v*vertical)
-            col = color(r, world)
+    ])
+
+    cam = Camera()
+    ns = 4
+    for ty in range(ny, 0, -1):
+        y = ty - 1 #
+        for x in range(nx):
+            col = np.array([0.0, 0.0, 0.0])
+            for s in range(ns):
+                u = (1.0*x+random.random())/nx
+                v = (1.0*y+random.random())/ny
+                r = cam.get_ray(u, v)
+
+                col += color(r, world)
+            col /= (1.0)*ns
 
             ir = int(255.99*col[0])
             ig = int(255.99*col[1])
@@ -147,13 +156,15 @@ def create_image(stream, nx=200, ny=100):
 
             stream.write(bytearray([ir, ig, ib]))
         #stream.write('\n')
-            
+
 
 if __name__ == '__main__':
     f = open('f1.ppm', "wb")
     create_image(f, 600, 300)
     f.close()
-    
+
     im = Image.open("f1.ppm")
     print im.format, im.size, im.mode
     im.save("f1.png")
+    im.save("f1.jpg")
+    im.close()
