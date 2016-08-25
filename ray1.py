@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import random
 from PIL import Image
@@ -22,7 +23,6 @@ class Ray(object, ):
         return self.A + t*self.B
 
 class HitRecord(object, ):
-
     def __init__(self, t, p, normal):
         self.t = t
         self.p = p
@@ -85,6 +85,15 @@ class HitableList(Hitable, ):
 
         return hit_anything, rec
 
+def random_in_unit_sphere():
+    while True:
+        p = 2.0* np.array(
+            [random.random(), random.random(), random.random(), ]
+        ) - np.ones(3)
+        if p.dot(p) >=1.0:
+            break
+
+    return p
 
 def unit_vector(v):
     mag = np.sqrt(v.dot(v))
@@ -92,40 +101,21 @@ def unit_vector(v):
 
 def color(r, world):
 
-    res, rec = world.hit(r, 0.0, 999999)
+    res, rec = world.hit(r, 0.0, 999999999)
     if(res):
-        return 0.5 * np.array([
-            rec.normal[0] + 1,
-            rec.normal[1] + 1,
-            rec.normal[2] + 1,
-        ])
+        target = rec.p + rec.normal + random_in_unit_sphere()
+        return 0.2*color(Ray(rec.p, target - rec.p), world)
+
     else:
         unit_direction = unit_vector(r.direction)
         t = 0.5*(unit_direction[1] + 1.0)
-        return (1.0-t)*np.array([1.0, 1.0, 1.0])+ t * np.array([0.5, 0.7, 1.0])
-
-def hit_sphere11(center, radius, r):
-    oc = r.origin - center
-    a = r.direction.dot(r.direction)
-    b = 2.0 * oc.dot(r.direction)
-    c = oc.dot(oc) - radius * radius
-    discriminant = b * b - 4 * a * c
-    if discriminant < 0 :
-        return -1.0
-    else:
-        return (-b - np.sqrt(discriminant)) / (2.0 * a)
-
+        return (1.0-t)*np.array([1,1,1]) + t * np.array([0.5, 0.7, 1.0])
 
 
 def create_image(stream, nx=200, ny=100):
     stream.write("P6\n")
     stream.write("{0} {1}\n".format(nx,ny))
     stream.write("255\n")
-
-    lower_left_corner = np.array([-2.0, -1.0, -1.0])
-    horizontal = np.array([4.0, 0.0, 0.0])
-    vertical = np.array([0.0, 2.0, 0.0])
-    origin = np.array([0.0, 0.0, 0.0])
 
     world = HitableList([
         Sphere(np.array([0, 0, -1]), 0.5),
@@ -137,30 +127,48 @@ def create_image(stream, nx=200, ny=100):
     ])
 
     cam = Camera()
-    ns = 4
+    ns = 8
+    color_function = color
+    np_array = np.array
+    random_function = random.random
+    get_ray_function = cam.get_ray
+    np_sqrt = np.sqrt
+    bytes = []
+
     for ty in range(ny, 0, -1):
         y = ty - 1 #
         for x in range(nx):
-            col = np.array([0.0, 0.0, 0.0])
+            col = np_array([0., 0., 0.])
             for s in range(ns):
-                u = (1.0*x+random.random())/nx
-                v = (1.0*y+random.random())/ny
-                r = cam.get_ray(u, v)
-
-                col += color(r, world)
+                u = (1.0*x+random_function())/nx
+                v = (1.0*y+random_function())/ny
+                r = get_ray_function(u, v)
+                col += color_function(r, world)
             col /= (1.0)*ns
+            col = np_array([np_sqrt(col[0]), np_sqrt(col[1]), np_sqrt(col[2]),])
 
             ir = int(255.99*col[0])
             ig = int(255.99*col[1])
             ib = int(255.99*col[2])
 
-            stream.write(bytearray([ir, ig, ib]))
+            bytes.append(bytearray([ir, ig, ib]))
+
+    for b in bytes:
+        stream.write(b)
         #stream.write('\n')
 
 
 if __name__ == '__main__':
+    sys.setrecursionlimit(9999999)
+
     f = open('f1.ppm', "wb")
-    create_image(f, 600, 300)
+
+    import time
+    start = time.clock()
+
+    create_image(f, 200, 100)
+    print time.clock() - start
+
     f.close()
 
     im = Image.open("f1.ppm")
